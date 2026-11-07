@@ -4,7 +4,7 @@ description: Cleans up temporary files and non-final versions of PDFs, images an
 license: MIT
 metadata:
   author: Roberto Anguita Martín <info@laterretagames.com>
-  version: 0.1.0
+  version: 0.2.0
   repository: https://github.com/ranguitamartin/clean-claude-code
 ---
 
@@ -37,7 +37,11 @@ Deletion is the one thing here that cannot be undone, so the whole workflow is b
    - Drop anything the user's task just asked you to produce (the deliverable is "final" even if its name matches a pattern).
    - Files with a single weak reason (only `temp-name-pattern`) deserve a second look; those with `temp-dir` or `superseded-by` are usually safe.
 
-3. **Present the dry-run.** Group by reason, show size and total reclaimed space, and say what is kept (e.g. "keeping `report-v4.pdf`, removing v1–v3"). Ask for explicit confirmation. Let the user remove items from the list.
+3. **Present the dry-run.** Group by reason, show size and total reclaimed space, and say what is kept (e.g. "keeping `report-v4.pdf`, removing v1–v3"). Then ask for confirmation with the `AskUserQuestion` tool so the user answers by clicking a button instead of typing (load it with ToolSearch first if it is deferred). Write the question and labels in the user's language.
+   - **Question 1** (single choice), summarising the count and size: "Move all N files to the trash" / "Let me choose which groups" / "Cancel, keep everything".
+   - If they pick "choose", **Question 2** (multi-select), one option per reason group (e.g. "Superseded versions (5)", "Temp folders (3)", "Name patterns (2)", "Scratchpad (1)"), so they tick only the groups to remove. There are at most four groups; merge the smallest if needed.
+   - Treat "Other"/free text as a request to adjust the list, and ask again with the updated list.
+   - If `AskUserQuestion` is unavailable, fall back to asking in plain text. Never treat silence or an ambiguous answer as a yes.
 
 4. **Apply only what was confirmed.** Write the approved paths to a JSON array file and run:
    ```bash
