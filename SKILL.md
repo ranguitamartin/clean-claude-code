@@ -16,10 +16,16 @@ Deletion is the one thing here that cannot be undone, so the whole workflow is b
 
 ## Workflow
 
-1. **Scan (read-only).** Run from the project root, adding the current session scratchpad directory from your environment if there is one:
+1. **Scan (read-only).** First work out every folder this session works in, because a session often spans several sibling folders (e.g. `web_app/`, `ios_app/`, `android_app/`) and the script only sees the roots you pass it:
+   - the primary working directory and every additional working directory listed in your environment;
+   - any other folder you have read from or written to in this session (check the paths of the files you touched);
+   - the session scratchpad directory, if there is one.
+
+   Pass each project folder as its own `--root`, and the scratchpad with `--scratchpad`:
    ```bash
-   python3 <skill-dir>/scripts/scan.py --root . --scratchpad <scratchpad-dir>
+   python3 <skill-dir>/scripts/scan.py --root /path/web --root /path/ios --root /path/android --scratchpad <scratchpad-dir>
    ```
+   If you are unsure whether a nearby folder belongs to the session, ask the user instead of guessing; scanning too little is harmless, scanning an unrelated project is not.
    The script returns JSON with each candidate's path, kind (pdf/image/video), size, and `reasons`:
    - `temp-dir:<name>` – inside tmp/, scratch/, renders/, frames/, previews/, test-results/ …
    - `temp-name-pattern` – draft, tmp, wip, copy, `(1)`, final-final, screenshot, preview …
@@ -27,7 +33,7 @@ Deletion is the one thing here that cannot be undone, so the whole workflow is b
    - `scratchpad-session-file` – anything in the Claude session scratchpad
 
 2. **Review before presenting.** The script is heuristic, so sanity-check it:
-   - `grep -r` the project (README, markdown, HTML, code) for each candidate's filename; if something references it, drop it from the list — it is probably an asset, not junk.
+   - The script already searches every root's text files (docs, code, configs) for each candidate's filename and reports matches in `referenced_by`. Treat any candidate with that field as an asset: drop it unless the user says otherwise. Do not rely on your own `grep` for this; the script does it for you.
    - Drop anything the user's task just asked you to produce (the deliverable is "final" even if its name matches a pattern).
    - Files with a single weak reason (only `temp-name-pattern`) deserve a second look; those with `temp-dir` or `superseded-by` are usually safe.
 
@@ -35,13 +41,13 @@ Deletion is the one thing here that cannot be undone, so the whole workflow is b
 
 4. **Apply only what was confirmed.** Write the approved paths to a JSON array file and run:
    ```bash
-   python3 <skill-dir>/scripts/scan.py --root . --scratchpad <scratchpad-dir> --apply approved.json
+   python3 <skill-dir>/scripts/scan.py --root /path/web --root /path/ios --root /path/android --scratchpad <scratchpad-dir> --apply approved.json
    ```
    Files go to the system trash, not `rm`, so a mistake is recoverable. Report how many were trashed and anything refused.
 
 ## Guarantees built into the script
 
-- Never leaves the project root or the scratchpad you pass in; never follows symlinks.
+- Never leaves the roots and scratchpad you pass in; never follows symlinks. Each root respects its own git repository.
 - Never touches files tracked by git (those are deliberate project content).
 - Skips `.git`, `node_modules`, virtualenvs and build output.
 - `--apply` re-validates every path, so a bad manifest cannot delete something outside scope.

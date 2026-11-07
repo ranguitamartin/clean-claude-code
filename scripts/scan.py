@@ -100,6 +100,36 @@ def NAME_MATCH(stem):
     return bool(TEMP_NAME.search(stem))
 
 
+TEXT_EXT = {".md", ".txt", ".json", ".js", ".ts", ".tsx", ".jsx", ".py", ".html", ".css",
+            ".swift", ".kt", ".kts", ".java", ".xml", ".yml", ".yaml", ".sh", ".plist",
+            ".gradle", ".toml", ".dart", ".rb", ".php", ".strings", ".pbxproj"}
+
+
+def mark_references(cands, roots):
+    """Add 'referenced_by' to candidates whose filename appears in a text file."""
+    names = {}
+    for c in cands:
+        names.setdefault(Path(c["path"]).name, []).append(c)
+    for r in roots:
+        for dp, dns, fns in os.walk(r, followlinks=False):
+            dns[:] = [d for d in dns if d not in SKIP_DIRS]
+            for fn in fns:
+                p = Path(dp) / fn
+                if p.suffix.lower() not in TEXT_EXT or p.is_symlink():
+                    continue
+                try:
+                    if p.stat().st_size > 2_000_000:
+                        continue
+                    txt = p.read_text(errors="ignore")
+                except OSError:
+                    continue
+                for n, cs in names.items():
+                    if n in txt:
+                        for c in cs:
+                            if str(p.resolve()) != c["path"]:
+                                c.setdefault("referenced_by", []).append(str(p))
+
+
 def to_trash(path: str) -> str:
     p = Path(path)
     trash = Path.home() / ".Trash"
@@ -115,17 +145,18 @@ def to_trash(path: str) -> str:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    ap.add_argument("--root", default=".", help="project directory (default: cwd)")
+    ap.add_argument("--root", action="append", default=None,
+                    help="project directory; repeat for every folder the session works in (default: cwd)")
     ap.add_argument("--scratchpad", action="append", default=[],
                     help="Claude session scratchpad dir to include (repeatable)")
     ap.add_argument("--apply", metavar="MANIFEST",
                     help="JSON list of paths confirmed by the user; moves them to trash")
     a = ap.parse_args()
 
-    root = Path(a.root).resolve()
+    roots = [Path(r).resolve() for r in (a.root or ["."])]
     if a.apply:
-        allowed = [root] + [Path(s).resolve() for s in a.scratchpad]
-        tracked = git_tracked(root)
+        allowed = roots + [Path(s).resolve() for s in a.scratchpad]
+        tracked = set().union(*(git_tracked(r) for r in roots))
         moved, refused = [], []
         for path in json.load(open(a.apply)):
             rp = Path(path).resolve()
@@ -135,13 +166,16 @@ def main():
         print(json.dumps({"trashed": len(moved), "refused": refused}, indent=2))
         return
 
-    result = scan(root, False)
+    result = []
+    for root in roots:
+        result += scan(root, False)
     for s in a.scratchpad:
         sp = Path(s).resolve()
         if sp.is_dir():
             result += scan(sp, True)
+    mark_references(result, roots)
     result.sort(key=lambda c: (c["kind"], c["path"]))
-    print(json.dumps({"root": str(root), "count": len(result),
+    print(json.dumps({"roots": [str(r) for r in roots], "count": len(result),
                       "total_bytes": sum(c["size"] for c in result),
                       "candidates": result}, indent=2))
 
