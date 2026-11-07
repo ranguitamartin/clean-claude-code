@@ -8,6 +8,8 @@ Safety rules (enforced here, not just documented):
   * never leaves the given roots; never follows symlinks
   * never touches files tracked by git
   * skips .git, node_modules, virtualenvs and build-tool dirs
+  * build dirs (ddarch, ddn, ddv, arch + any --build-dir) are listed as whole folders,
+    never if they contain git-tracked files
   * nothing is permanently deleted: files go to the OS trash
 """
 import argparse, json, os, re, shutil, subprocess, sys, time
@@ -19,6 +21,8 @@ MEDIA = {
     "image": {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".svg", ".heic"},
     "video": {".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v", ".gif"},
 }
+# Xcode-style build/derived-data/archive folders created by xcodebuild runs.
+BUILD_DIRS = {"ddarch", "ddn", "ddv", "arch"}
 ALL_EXT = set().union(*MEDIA.values())
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist",
              "build", ".idea", ".vscode", "target", "Pods", ".gradle"}
@@ -46,11 +50,43 @@ def git_tracked(root: Path) -> set:
 
 def walk(root: Path):
     for dp, dns, fns in os.walk(root, followlinks=False):
-        dns[:] = [d for d in dns if d not in SKIP_DIRS]
+        dns[:] = [d for d in dns if d not in SKIP_DIRS and d not in BUILD_DIRS]
         for fn in fns:
             p = Path(dp) / fn
             if p.suffix.lower() in ALL_EXT and not p.is_symlink():
                 yield p
+
+
+def dir_size(d: Path) -> int:
+    total = 0
+    for dp, _, fns in os.walk(d, followlinks=False):
+        for fn in fns:
+            try:
+                total += os.lstat(os.path.join(dp, fn)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def has_tracked(d: Path, tracked: set) -> bool:
+    prefix = str(d.resolve()) + os.sep
+    return any(t.startswith(prefix) for t in tracked)
+
+
+def find_build_dirs(root: Path, tracked: set):
+    found = []
+    for dp, dns, _ in os.walk(root, followlinks=False):
+        dns[:] = [d for d in dns if d not in SKIP_DIRS]
+        for d in list(dns):
+            p = Path(dp) / d
+            if d.lower() in BUILD_DIRS and not p.is_symlink():
+                dns.remove(d)  # do not descend; the folder is one unit
+                if has_tracked(p, tracked):
+                    continue
+                found.append({"path": str(p.resolve()), "kind": "build-dir",
+                              "size": dir_size(p), "mtime": int(p.stat().st_mtime),
+                              "reasons": [f"build-dir:{d}"]})
+    return found
 
 
 def kind(p: Path) -> str:
@@ -93,7 +129,7 @@ def scan(root: Path, is_scratch: bool):
         for p in g:
             if p != keep:
                 add(p, f"superseded-by:{keep.name}")
-    return list(cands.values())
+    return list(cands.values()) + find_build_dirs(root, tracked)
 
 
 def NAME_MATCH(stem):
@@ -109,6 +145,8 @@ def mark_references(cands, roots):
     """Add 'referenced_by' to candidates whose filename appears in a text file."""
     names = {}
     for c in cands:
+        if c["kind"] == "build-dir":
+            continue
         names.setdefault(Path(c["path"]).name, []).append(c)
     for r in roots:
         for dp, dns, fns in os.walk(r, followlinks=False):
@@ -149,10 +187,13 @@ def main():
                     help="project directory; repeat for every folder the session works in (default: cwd)")
     ap.add_argument("--scratchpad", action="append", default=[],
                     help="Claude session scratchpad dir to include (repeatable)")
+    ap.add_argument("--build-dir", action="append", default=[],
+                    help="extra build folder name to treat like ddarch/ddn/ddv/arch (repeatable)")
     ap.add_argument("--apply", metavar="MANIFEST",
                     help="JSON list of paths confirmed by the user; moves them to trash")
     a = ap.parse_args()
 
+    BUILD_DIRS.update(n.lower() for n in a.build_dir)
     roots = [Path(r).resolve() for r in (a.root or ["."])]
     if a.apply:
         allowed = roots + [Path(s).resolve() for s in a.scratchpad]
@@ -160,8 +201,13 @@ def main():
         moved, refused = [], []
         for path in json.load(open(a.apply)):
             rp = Path(path).resolve()
-            ok = any(rp.is_relative_to(r) for r in allowed) and rp.is_file() \
-                and rp.suffix.lower() in ALL_EXT and str(rp) not in tracked and not rp.is_symlink()
+            in_scope = any(rp.is_relative_to(r) for r in allowed)
+            if rp.is_dir():
+                ok = in_scope and rp.name.lower() in BUILD_DIRS and not Path(path).is_symlink() \
+                    and not has_tracked(rp, tracked)
+            else:
+                ok = in_scope and rp.is_file() and rp.suffix.lower() in ALL_EXT \
+                    and str(rp) not in tracked and not rp.is_symlink()
             (moved if ok else refused).append(to_trash(str(rp)) if ok else str(path))
         print(json.dumps({"trashed": len(moved), "refused": refused}, indent=2))
         return

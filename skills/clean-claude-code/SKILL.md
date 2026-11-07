@@ -31,6 +31,7 @@ Deletion is the one thing here that cannot be undone, so the whole workflow is b
    - `temp-name-pattern` – draft, tmp, wip, copy, `(1)`, final-final, screenshot, preview …
    - `superseded-by:<file>` – an older version (`-v1`, `(2)`) when a newer or "final" one exists
    - `scratchpad-session-file` – anything in the Claude session scratchpad
+   - `build-dir:<name>` – a whole build folder (`kind: "build-dir"`) named `ddarch`, `ddn`, `ddv` or `arch` (Xcode derived data and archives from `xcodebuild`). It is one candidate with the folder's total size; its contents are not listed separately. The script skips any such folder that contains git-tracked files, so a source folder that happens to be called `arch` is safe. Add other names with `--build-dir <name>` (repeatable) if the user's project uses different ones.
 
 2. **Review before presenting.** The script is heuristic, so sanity-check it:
    - The script already searches every root's text files (docs, code, configs) for each candidate's filename and reports matches in `referenced_by`. Treat any candidate with that field as an asset: drop it unless the user says otherwise. Do not rely on your own `grep` for this; the script does it for you.
@@ -39,7 +40,7 @@ Deletion is the one thing here that cannot be undone, so the whole workflow is b
 
 3. **Present the dry-run.** Group by reason, show size and total reclaimed space, and say what is kept (e.g. "keeping `report-v4.pdf`, removing v1–v3"). Then ask for confirmation with the `AskUserQuestion` tool so the user answers by clicking a button instead of typing (load it with ToolSearch first if it is deferred). Write the question and labels in the user's language.
    - **Question 1** (single choice), summarising the count and size: "Move all N files to the trash" / "Let me choose which groups" / "Cancel, keep everything".
-   - If they pick "choose", **Question 2** (multi-select), one option per reason group (e.g. "Superseded versions (5)", "Temp folders (3)", "Name patterns (2)", "Scratchpad (1)"), so they tick only the groups to remove. There are at most four groups; merge the smallest if needed.
+   - If they pick "choose", **Question 2** (multi-select), one option per reason group (e.g. "Superseded versions (5)", "Temp folders (3)", "Name patterns (2)", "Build folders ddarch/ddn/ddv/arch (4, 2.3 GB)"), so they tick only the groups to remove. There are at most four groups; merge the smallest if needed.
    - Treat "Other"/free text as a request to adjust the list, and ask again with the updated list.
    - If `AskUserQuestion` is unavailable, fall back to asking in plain text. Never treat silence or an ambiguous answer as a yes.
 
@@ -58,4 +59,4 @@ Deletion is the one thing here that cannot be undone, so the whole workflow is b
 
 ## What this skill does not do
 
-It only handles PDF, image and video files. It does not clean code, logs, caches or git branches. If the user wants those, say so rather than extending the scope silently.
+It handles PDF, image and video files plus the build folders named above. It does not clean code, logs, other caches or git branches. Build folders can be large and are the biggest space win, but they are rebuilt on the next compile, so tell the user the next build will be slower. If the user wants those, say so rather than extending the scope silently.
