@@ -73,6 +73,24 @@ or ask in natural language:
 - "Remove old versions of the PDFs and images you generated"
 - "Limpia los archivos temporales"
 
+## Updating
+
+Third-party marketplaces are not always refreshed automatically, so to get a new version run in a terminal:
+
+```bash
+claude plugin marketplace update clean-claude-code
+claude plugin update clean-claude-code@clean-claude-code
+```
+
+Then start a new Claude Code session. To confirm, the second command reports the installed version (or says it is already at the latest).
+
+### For maintainers: publishing a new version
+
+Claude Code only offers an update when the `version` changes. Before each push, bump it in both:
+
+- `.claude-plugin/plugin.json` (`version`)
+- `skills/clean-claude-code/SKILL.md` (`metadata.version`)
+
 ## Author
 
 Roberto Anguita Martín — info@laterretagames.com
