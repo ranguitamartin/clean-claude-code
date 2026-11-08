@@ -4,7 +4,7 @@ description: Cleans up temporary files and non-final versions of PDFs, images an
 license: MIT
 metadata:
   author: Roberto Anguita Martín <info@laterretagames.com>
-  version: 0.2.0
+  version: 0.3.0
   repository: https://github.com/ranguitamartin/clean-claude-code
 ---
 
